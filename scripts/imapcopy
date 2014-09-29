@@ -124,3 +124,12 @@ service will not update any flags when message data is requested.  When set to
 C<off>, the IMAP service will set messages as B<Seen> when retrieving.
 
 =back
+
+=head1 AUTHOR
+
+Xan Tronix <xan@cpan.org>
+
+=head1 COPYRIGHT
+
+Copyright (c) 2014, cPanel, Inc.  Distributed under the terms of the MIT
+license.
