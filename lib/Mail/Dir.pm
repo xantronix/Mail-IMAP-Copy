@@ -9,6 +9,8 @@ use IO::Handle;
 use Cwd   ();
 use Fcntl ();
 
+use Mail::Dir::Message ();
+
 my $MAX_BUFFER_LEN      = 4096;
 my $MAX_TMP_LAST_ACCESS = 129600;
 my $DEFAULT_MAILBOX     = 'INBOX';
@@ -61,9 +63,9 @@ sub mailbox_dir {
     my @components = split /\./, $mailbox;
     shift @components;
 
-    my $subdir = join( '/', map { ".$_" } @components );
+    my $subdir = join( '.', @components );
 
-    return "$self->{'dir'}/$subdir";
+    return "$self->{'dir'}/.$subdir";
 }
 
 sub select_mailbox {
@@ -88,10 +90,20 @@ sub mailbox_exists {
     return -d $self->mailbox_dir($mailbox);
 }
 
+sub parent_mailbox {
+    my ($mailbox) = @_;
+
+    my @components = split /\./, $mailbox;
+    pop @components if @components;
+
+    return join( '.', @components );
+}
+
 sub create_mailbox {
     my ( $self, $mailbox ) = @_;
 
     die('Maildir++ extensions not enabled') unless $self->{'with_extensions'};
+    die('Parent mailbox does not exist') unless $self->mailbox_exists( parent_mailbox($mailbox) );
 
     my %dirs = dirs( $self->mailbox_dir($mailbox) );
 
@@ -107,10 +119,10 @@ sub create_mailbox {
 sub name {
     my ( $self, %args ) = @_;
 
-    my $file = $args{'file'} or die('No message file or handle specified');
+    my $from = $args{'from'} or die('No message file, handle or source subroutine specified');
     my $time = $args{'time'} ? $args{'time'} : time();
 
-    my $name = sprintf( "%d.%d.%s", $time, $$, $self->{'hostname'} );
+    my $name = sprintf( "%d.P%dQ%d.%s", $time, $$, $self->{'deliveries'}, $self->{'hostname'} );
 
     if ( $self->{'with_extensions'} ) {
         my $size;
@@ -118,13 +130,13 @@ sub name {
         if ( defined $args{'size'} ) {
             $size = $args{'size'};
         }
-        elsif ( !ref($file) ) {
-            my @st = stat($file) or die("Unable to stat() $file: $!");
+        elsif ( !ref($from) ) {
+            my @st = stat($from) or die("Unable to stat() $from: $!");
             $size = $st[7];
         }
 
         if ( defined $size ) {
-            $name .= sprintf( ",%d", $size );
+            $name .= sprintf( ",S=%d", $size );
         }
     }
 
@@ -136,42 +148,53 @@ sub spool {
 
     my $size = 0;
 
-    my $from = $args{'from'} or die('No message file or handle specified to spool from');
+    my $from = $args{'from'} or die('No message file, handle or source subroutine specified to spool from');
     my $to   = $args{'to'}   or die('No message file specified to spool to');
-
-    my $fh_from;
-
-    if ( ref($from) eq 'GLOB' ) {
-        $fh_from = $from;
-    }
-    else {
-        sysopen( $fh_from, $from, &Fcntl::O_RDONLY ) or die("Unable to open $from for reading: $!");
-    }
 
     sysopen( my $fh_to, $to, &Fcntl::O_CREAT | &Fcntl::O_WRONLY ) or die("Unable to open $to for writing: $!");
 
-    while ( my $len = $fh_from->read( my $buf, $MAX_BUFFER_LEN ) ) {
-        $size += syswrite( $fh_to, $buf, $len );
+    if ( ref($from) eq 'CODE' ) {
+        $from->($fh_to);
 
         $fh_to->flush;
         $fh_to->sync;
+
+        $size = tell $fh_to;
+    }
+    else {
+        my $fh_from;
+
+        if ( ref($from) eq 'GLOB' ) {
+            $fh_from = $from;
+        }
+        elsif ( !defined ref($from) ) {
+            sysopen( $fh_from, $from, &Fcntl::O_RDONLY ) or die("Unable to open $from for reading: $!");
+        }
+
+        while ( my $len = $fh_from->read( my $buf, $MAX_BUFFER_LEN ) ) {
+            $size += syswrite( $fh_to, $buf, $len );
+
+            $fh_to->flush;
+            $fh_to->sync;
+        }
+
+        close $fh_from unless ref($from) eq 'GLOB';
     }
 
     close $fh_to;
-    close $fh_from unless ref($from) eq 'GLOB';
 
     return $size;
 }
 
 sub deliver {
-    my ( $self, $file ) = @_;
+    my ( $self, $from ) = @_;
 
     my $oldcwd = Cwd::getcwd() or die("Unable to getcwd(): $!");
     my $dir    = $self->mailbox_dir;
     my $time   = time();
 
     my $name = $self->name(
-        'file' => $file,
+        'from' => $from,
         'time' => $time
     );
 
@@ -182,12 +205,12 @@ sub deliver {
     return if -e $file_tmp;
 
     my $size = $self->spool(
-        'from' => $file,
+        'from' => $from,
         'to'   => $file_tmp
     );
 
     my $name_new = $self->name(
-        'file' => $file_tmp,
+        'from' => $file_tmp,
         'time' => $time,
         'size' => $size
     );
@@ -198,25 +221,29 @@ sub deliver {
         die("Unable to deliver incoming message to $file_new: $!");
     }
 
+    my @st = stat($file_new) or die("Unable to stat() $file_new: $!");
+
     chdir($oldcwd) or die("Unable to chdir() to $oldcwd: $!");
 
     $self->{'deliveries'}++;
 
-    return {
+    return Mail::Dir::Message->from_file(
+        'maildir' => $self,
         'mailbox' => $self->{'mailbox'},
+        'dir'     => 'new',
         'file'    => "$dir/$file_new",
         'name'    => $name_new,
-        'size'    => $size
-    };
+        'st'      => \@st
+    );
 }
 
 sub messages {
-    my ($self, %opts) = @_;
-    my @ret;
-
+    my ( $self, %opts ) = @_;
     my $dir = $self->mailbox_dir;
 
-    foreach my $key ( qw(new cur) ) {
+    my @ret;
+
+    foreach my $key (qw(tmp new cur)) {
         next unless $opts{$key};
 
         my $path = "$dir/$key";
@@ -227,22 +254,16 @@ sub messages {
             next if $item =~ /^\./;
 
             my $file = "$path/$item";
-            my $size;
+            my @st = stat($file) or die("Unable to stat() $file: $!");
 
-            if ( $self->{'with_extensions'} ) {
-                $size = $1 if $item =~ /,(\d+)$/;
-            }
-
-            unless ( defined $size ) {
-                $size = ( stat $file )[7] or die("Unable to stat() $file: $!");
-            }
-
-            my $message = {
+            my $message = Mail::Dir::Message->from_file(
+                'maildir' => $self,
                 'mailbox' => $self->{'mailbox'},
+                'dir'     => $key,
                 'file'    => $file,
                 'name'    => $item,
-                'size'    => $size
-            };
+                'st'      => \@st
+            );
 
             if ( defined $opts{'filter'} ) {
                 next unless $opts{'filter'}->($message);
@@ -259,35 +280,22 @@ sub messages {
 
 sub purge {
     my ($self) = @_;
-    my @ret;
-
     my $time = time();
-    my $dir  = $self->mailbox_dir;
-    my $path = "$dir/tmp";
 
-    opendir( my $dh, $path ) or die("Unable to opendir() $dir: $!");
+    my $messages = $self->messages(
+        'tmp'    => 1,
+        'filter' => sub {
+            my ($message) = @_;
 
-    while ( my $item = readdir($dh) ) {
-        next if $item =~ /^\./;
+            return ( $time - $message->{'atime'} > $MAX_TMP_LAST_ACCESS ) ? 1 : 0;
+        }
+    );
 
-        my $file = "$path/$item";
-        my @st   = stat($file) or die("Unable to stat() $file: $!");
-
-        next unless $time - $st[8] > $MAX_TMP_LAST_ACCESS;
-
-        unlink($file) or die("Unable to unlink() $file: $!");
-
-        push @ret, {
-            'mailbox' => $self->{'mailbox'},
-            'file'    => $file,
-            'name'    => $item,
-            'size'    => $st[7]
-        };
+    foreach my $message ( @{$messages} ) {
+        unlink( $message->{'file'} ) or die("Unable to unlink() $message->{'file'}: $!");
     }
 
-    closedir $dh;
-
-    return \@ret;
+    return $messages;
 }
 
 1;

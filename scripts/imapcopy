@@ -1,0 +1,126 @@
+#! /usr/bin/perl
+
+use strict;
+use warnings;
+
+use App::IMAP::Copy ();
+
+exit App::IMAP::Copy->run(@ARGV);
+
+__END__
+
+=head1 NAME
+
+imapcopy - Recursively download an IMAP account
+
+=head1 SYNOPSIS
+
+    ~$ imapcopy --config remote.conf
+
+=head1 DESCRIPTION
+
+imapcopy will download the entire contents of an IMAP account, recursively, into
+a Maildir++ directory structure of the user's choosing, based on the values
+listed in a configuration file given.  Mail can be delivered into an existing
+Maildir++ directory structure, though currently this will result in duplication.
+
+=head1 ARGUMENTS
+
+=over
+
+=item B<--config> I<file>
+
+List the location of a mandatory configuration file.  This file will contain
+plaintext credentials, so it should have permissions only allowing the user to
+access its contents.
+
+=back
+
+=head1 CONFIGURATION FILE
+
+=head2 SYNTAX
+
+The C<imapcopy> configuration file is of a simple format.  Empty lines, or lines
+consisting of only whitespace, will be ignored.  As well, lines beginning with
+any amount of whitespace, followed by a comment delimited by the B<C<#>>
+character, shall also be ignored.
+
+Configuration options are specified in the following form, always with double
+quotes:
+
+    option_name "value"
+
+Any amount of whitespace may proceed or follow C<option_name> or "I<value>".  A
+comment may follow a configuration option statement on the same line, such as:
+
+    foo "bar" # comment!
+
+Unescaped double quotes may unambiguously be used within a value field.
+
+=head2 VALID OPTIONS
+
+=head3 Local mail delivery
+
+These options specify the manner in which messages from the remote IMAP service
+are delivered to the local machine.
+
+=over
+
+=item C<maildir>
+
+Specifies a path to a directory that may or may not exist that shall be used as
+a Maildir++ directory to which messages are delivered.
+
+=back
+
+=head3 Remote IMAP account
+
+These options specify the connection details and authentication credentials of
+the remote IMAP service and account.
+
+=over
+
+=item C<username>
+
+The remote IMAP account username.
+
+=item C<password>
+
+The plaintext password of the remote IMAP account.
+
+=item C<host>
+
+The hostname or Internet address of the remote IMAP service.
+
+=item C<port>
+
+A numerical value indicating the port number of the remote IMAP service.
+
+=item C<ssl>
+
+Specifies whether or not the IMAP client should use SSL for the IMAP session.
+Must be set to C<on> or C<off>.  Note that this is not typically appropriate
+for use over standard IMAP port 143.
+
+=item C<tls>
+
+Specifies whether or not the IMAP client should negotiate to use TLS for the
+IMAP session.  Must be set to C<on> or C<off>.  This may be appropriate for use
+over the standard IMAP port 143, if the remote IMAP service supports it.
+
+=back
+
+=head3 Remote IMAP service behavior
+
+These options affect the behavior of the remote IMAP service.
+
+=over
+
+=item C<peek>
+
+Specifies whether or not the IMAP client should update any flags when fetching
+message data.  Must be set to C<on> or C<off>.  When set to C<on>, the IMAP
+service will not update any flags when message data is requested.  When set to
+C<off>, the IMAP service will set messages as B<Seen> when retrieving.
+
+=back
