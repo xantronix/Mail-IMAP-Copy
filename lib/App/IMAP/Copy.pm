@@ -51,9 +51,9 @@ sub run {
     );
 
     my %maildir_settings = (
-        'dir'             => $config->{'maildir'},
-        'create'          => 1,
-        'with_extensions' => 1
+        'dir'       => $config->{'maildir'},
+        'create'    => 1,
+        'maildir++' => 1
     );
 
     my $imap    = Mail::IMAPClient->new(%imap_settings);

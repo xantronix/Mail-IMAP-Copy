@@ -2,10 +2,11 @@ use inc::Module::Install;
 
 name           'Mail-IMAP-Copy';
 version_from   'lib/Mail/IMAP/Copy.pm';
-author         'Erin Schoenhals <erin@cpanel.net>';
+author         'Xan Tronix <xan@cpan.org>';
 abstract       'Recursively copy an IMAP account';
-license        'perl';
+license        'mit';
 requires       'Mail::IMAPClient' => 0;
+requires       'Mail::Dir'        => 0;
 
 install_share  'examples';
 install_script 'scripts/imapcopy';

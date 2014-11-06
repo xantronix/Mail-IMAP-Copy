@@ -10,8 +10,6 @@ inc/Module/Install/Share.pm
 inc/Module/Install/Win32.pm
 inc/Module/Install/WriteAll.pm
 lib/App/IMAP/Copy.pm
-lib/Mail/Dir.pm
-lib/Mail/Dir/Message.pm
 lib/Mail/IMAP/Copy.pm
 lib/Mail/IMAP/Copy/Config.pm
 LICENSE
